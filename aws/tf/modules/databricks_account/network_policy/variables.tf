@@ -30,3 +30,10 @@ variable "resource_prefix" {
   description = "Prefix for the resource names."
   type        = string
 }
+
+variable "enable_cbi_private_access" {
+  description = "Set to true only if the account has the CBI private access preview enabled."
+  type        = bool
+  default     = false
+}
+

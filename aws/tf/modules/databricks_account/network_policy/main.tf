@@ -45,7 +45,7 @@ resource "databricks_account_network_policy" "restrictive_network_policy" {
     # private access settings posture (private_access_level = "ACCOUNT"). The API now populates
     # private_access server-side when unset, which the provider reports as an inconsistent result after
     # apply ("was null, but now ..."); setting it explicitly avoids that error.
-    private_access = var.region == "us-gov-west-1" ? null : {
+    private_access = var.enable_cbi_private_access ? null : {
       restriction_mode = "ALLOW_ALL_REGISTERED_ENDPOINTS"
     }
     # Optional IP-based ingress restriction. When context_based_ingress_ip_acl is non-empty, public access
