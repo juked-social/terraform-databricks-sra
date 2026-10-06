@@ -6,10 +6,27 @@ locals {
   cmk_admin_value = var.cmk_admin_arn != null ? var.cmk_admin_arn : (
     var.aws_account_id != null ? "arn:${local.computed_aws_partition}:iam::${var.aws_account_id}:root" : null
   )
+
+  # Keys are created only when no custom key ARN is provided (and never for serverless-only workspaces)
+  create_workspace_storage_key = !local.is_serverless && var.custom_workspace_storage_key_arn == null
+  create_managed_services_key  = !local.is_serverless && var.custom_managed_services_key_arn == null
+
+  workspace_storage_key_arn = local.is_serverless ? null : (
+    local.create_workspace_storage_key ? aws_kms_key.workspace_storage[0].arn : var.custom_workspace_storage_key_arn
+  )
+  workspace_storage_key_alias = local.is_serverless ? null : (
+    local.create_workspace_storage_key ? aws_kms_alias.workspace_storage_key_alias[0].name : var.custom_workspace_storage_key_alias
+  )
+  managed_services_key_arn = local.is_serverless ? null : (
+    local.create_managed_services_key ? aws_kms_key.managed_services[0].arn : var.custom_managed_services_key_arn
+  )
+  managed_services_key_alias = local.is_serverless ? null : (
+    local.create_managed_services_key ? aws_kms_alias.managed_services_key_alias[0].name : var.custom_managed_services_key_alias
+  )
 }
 
 resource "aws_kms_key" "workspace_storage" {
-  count               = local.is_serverless ? 0 : 1
+  count               = local.create_workspace_storage_key ? 1 : 0
   description         = "KMS key for databricks workspace storage"
   enable_key_rotation = true
   policy = jsonencode({
@@ -76,7 +93,7 @@ resource "aws_kms_key" "workspace_storage" {
 
 
 resource "aws_kms_alias" "workspace_storage_key_alias" {
-  count         = local.is_serverless ? 0 : 1
+  count         = local.create_workspace_storage_key ? 1 : 0
   name          = "alias/${var.resource_prefix}-workspace-storage-key"
   target_key_id = aws_kms_key.workspace_storage[0].id
 }
@@ -84,7 +101,7 @@ resource "aws_kms_alias" "workspace_storage_key_alias" {
 # CMK for Managed Services
 
 resource "aws_kms_key" "managed_services" {
-  count               = local.is_serverless ? 0 : 1
+  count               = local.create_managed_services_key ? 1 : 0
   description         = "KMS key for managed services"
   enable_key_rotation = true
   policy = jsonencode({ Version : "2012-10-17",
@@ -127,7 +144,7 @@ resource "aws_kms_key" "managed_services" {
 }
 
 resource "aws_kms_alias" "managed_services_key_alias" {
-  count         = local.is_serverless ? 0 : 1
+  count         = local.create_managed_services_key ? 1 : 0
   name          = "alias/${var.resource_prefix}-managed-services-key"
   target_key_id = aws_kms_key.managed_services[0].key_id
 }

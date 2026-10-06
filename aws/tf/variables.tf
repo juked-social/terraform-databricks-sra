@@ -114,6 +114,23 @@ variable "custom_general_access_vpce_id" {
   default     = null
 }
 
+variable "custom_managed_services_key_alias" {
+  description = "Alias of the custom managed services KMS key (for example alias/my-key). Used only when custom_managed_services_key_arn is set."
+  type        = string
+  default     = null
+}
+
+variable "custom_managed_services_key_arn" {
+  description = "ARN of an existing KMS key for managed services encryption. When set, the key is not created. The key policy must allow the Databricks control plane to use the key."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.custom_managed_services_key_arn == null || can(regex("^arn:aws(-us-gov)?:kms:", var.custom_managed_services_key_arn))
+    error_message = "custom_managed_services_key_arn must be a KMS key ARN."
+  }
+}
+
 variable "custom_metastore_name" {
   description = "Optional name for the Unity Catalog metastore created by this deployment. If left blank/null, defaults to \"${"$"}{var.region}-unity-catalog\"."
   type        = string
@@ -161,6 +178,23 @@ variable "custom_vpc_id" {
   description = "Custom VPC ID"
   type        = string
   default     = null
+}
+
+variable "custom_workspace_storage_key_alias" {
+  description = "Alias of the custom workspace storage KMS key (for example alias/my-key). Used only when custom_workspace_storage_key_arn is set."
+  type        = string
+  default     = null
+}
+
+variable "custom_workspace_storage_key_arn" {
+  description = "ARN of an existing KMS key for workspace storage (root S3 bucket and EBS) encryption. When set, the key is not created. The key policy must allow the Databricks control plane and the cross-account role to use the key."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.custom_workspace_storage_key_arn == null || can(regex("^arn:aws(-us-gov)?:kms:", var.custom_workspace_storage_key_arn))
+    error_message = "custom_workspace_storage_key_arn must be a KMS key ARN."
+  }
 }
 
 variable "databricks_account_id" {
