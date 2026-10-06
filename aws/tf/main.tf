@@ -85,11 +85,11 @@ module "databricks_mws_workspace" {
   # Root Storage Bucket (skipped for serverless-only workspaces)
   bucket_name = local.is_serverless ? null : aws_s3_bucket.root_storage_bucket[0].id
 
-  # KMS Keys (skipped for serverless-only workspaces)
-  managed_services_key        = local.is_serverless ? null : aws_kms_key.managed_services[0].arn
-  workspace_storage_key       = local.is_serverless ? null : aws_kms_key.workspace_storage[0].arn
-  managed_services_key_alias  = local.is_serverless ? null : aws_kms_alias.managed_services_key_alias[0].name
-  workspace_storage_key_alias = local.is_serverless ? null : aws_kms_alias.workspace_storage_key_alias[0].name
+  # KMS Keys (custom keys when provided; skipped for serverless-only workspaces)
+  managed_services_key        = local.managed_services_key_arn
+  workspace_storage_key       = local.workspace_storage_key_arn
+  managed_services_key_alias  = local.managed_services_key_alias
+  workspace_storage_key_alias = local.workspace_storage_key_alias
 
   # Network Connectivity Configuration and Network Policy
   network_connectivity_configuration_id = module.network_connectivity_configuration.ncc_id

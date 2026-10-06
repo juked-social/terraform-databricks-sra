@@ -85,6 +85,28 @@ run "plan_test" {
   command = plan
 }
 
+# Plans with customer-provided KMS keys. Terraform must not create the workspace storage or managed services keys.
+run "plan_test_custom_kms_keys" {
+  command = plan
+
+  variables {
+    custom_workspace_storage_key_arn   = "arn:aws:kms:us-west-2:123456789012:key/11111111-1111-1111-1111-111111111111"
+    custom_workspace_storage_key_alias = "alias/custom-workspace-storage-key"
+    custom_managed_services_key_arn    = "arn:aws:kms:us-west-2:123456789012:key/22222222-2222-2222-2222-222222222222"
+    custom_managed_services_key_alias  = "alias/custom-managed-services-key"
+  }
+
+  assert {
+    condition     = length(aws_kms_key.workspace_storage) == 0 && length(aws_kms_key.managed_services) == 0
+    error_message = "KMS keys must not be created when custom key ARNs are provided."
+  }
+
+  assert {
+    condition     = length(aws_kms_alias.workspace_storage_key_alias) == 0 && length(aws_kms_alias.managed_services_key_alias) == 0
+    error_message = "KMS aliases must not be created when custom key ARNs are provided."
+  }
+}
+
 # Plans with the optional security features enabled, since the default run leaves them all off:
 # automatic cluster update, compliance security profile, enhanced security monitoring, account-level
 # disable of legacy features, IP-based ingress restriction, and serverless private endpoint rules.
