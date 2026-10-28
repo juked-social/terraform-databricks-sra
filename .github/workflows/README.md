@@ -68,8 +68,10 @@ see [here](https://github.com/terraform-linters/tflint/blob/master/docs/user-gui
 > configured to use the `--recursive` option by default, so this means that only the root configuration of a module will
 > use this configuration file by default. To avoid creating multiple .tflint.hcl files throughout a nested module
 > configuration, it is recommended to use the `tflint_args` input of the reusable workflow to add the
-`--config=$(pwd)/.tflint.hcl` argument. This will cause tflint to use the same configuration file as it recurses the
-> working directory tree. See azure-test.yml for an example.
+> `--config=${{ github.workspace }}/<working_directory>/.tflint.hcl` argument. This will cause tflint to use the same
+> configuration file as it recurses the working directory tree. Inputs are not run through the shell, so shell syntax
+> such as `$(pwd)` or `$GITHUB_WORKSPACE` is passed to tflint as literal text; use the `github.workspace` expression,
+> which Actions fills in before the call. See aws-test.yml for an example.
 
 ### Terraform Fmt
 
@@ -163,5 +165,5 @@ jobs:
     uses: ./.github/workflows/terraform-ruw.yml
     with:
       working_directory: azure/tf
-      tflint_args: "--config=$(pwd)/.tflint.hcl" #This causes TFLint to reuse the same .tflint.hcl file for every subdirectory
+      tflint_args: "--config=${{ github.workspace }}/azure/tf/.tflint.hcl" #This causes TFLint to reuse the same .tflint.hcl file for every subdirectory
 ```
