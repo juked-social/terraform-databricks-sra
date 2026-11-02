@@ -29,6 +29,22 @@ mock_provider "databricks" {
     }
   }
 
+  # Default to an account without disable_legacy_features enabled. Runs override this to cover accounts where it is.
+  mock_data "databricks_account_setting_v2" {
+    defaults = {
+      effective_boolean_val = {
+        value = false
+      }
+    }
+  }
+
+  # Default to an account where this deployment's workspace does not exist yet (a new deployment).
+  mock_data "databricks_mws_workspaces" {
+    defaults = {
+      ids = {}
+    }
+  }
+
 }
 # ---------------
 
@@ -107,9 +123,83 @@ run "plan_test_custom_kms_keys" {
   }
 }
 
+# New workspace, account setting off: the workspace-level legacy settings are managed.
+run "legacy_settings_new_workspace_account_off" {
+  command = plan
+
+  assert {
+    condition     = length(module.disable_legacy_settings) == 1
+    error_message = "Workspace-level legacy settings should be managed when the account setting is off."
+  }
+}
+
+# New workspace, account setting already enabled (e.g. by another deployment): the workspace settings are locked, so
+# managing them would make terraform destroy fail.
+run "legacy_settings_new_workspace_account_on" {
+  command = plan
+
+  override_data {
+    target = data.databricks_account_setting_v2.disable_legacy_features
+    values = {
+      effective_boolean_val = {
+        value = true
+      }
+    }
+  }
+
+  assert {
+    condition     = length(module.disable_legacy_settings) == 0
+    error_message = "Workspace-level legacy settings should be skipped when the account setting is already enabled."
+  }
+}
+
+# New workspace, account setting enabled by this deployment: same as above.
+run "legacy_settings_new_workspace_enabled_by_this_deployment" {
+  command = plan
+
+  variables {
+    disable_legacy_features_at_account_level = true
+  }
+
+  assert {
+    condition     = length(module.disable_legacy_features) == 1 && length(module.disable_legacy_settings) == 0
+    error_message = "Workspace-level legacy settings should be skipped when this deployment enables the account setting."
+  }
+}
+
+# Existing workspace, account setting enabled later: the workspace settings stay managed, since removing them from a
+# workspace that predates the account setting would re-enable legacy access.
+run "legacy_settings_existing_workspace_account_on" {
+  command = plan
+
+  override_data {
+    target = data.databricks_account_setting_v2.disable_legacy_features
+    values = {
+      effective_boolean_val = {
+        value = true
+      }
+    }
+  }
+
+  override_data {
+    target = data.databricks_mws_workspaces.all
+    values = {
+      ids = {
+        "my-databricks-dev" = 1234567890123456
+      }
+    }
+  }
+
+  assert {
+    condition     = length(module.disable_legacy_settings) == 1
+    error_message = "Workspace-level legacy settings should stay managed for an existing workspace."
+  }
+}
+
 # Plans with the optional security features enabled, since the default run leaves them all off:
 # automatic cluster update, compliance security profile, enhanced security monitoring, account-level
-# disable of legacy features, IP-based ingress restriction, and serverless private endpoint rules.
+# disable of legacy features, IP-based ingress restriction, the security analysis tool, and serverless private
+# endpoint rules.
 run "plan_test_full_features" {
   command = plan
 
@@ -120,6 +210,7 @@ run "plan_test_full_features" {
     enable_automatic_cluster_update               = true
     enable_compliance_security_profile            = true
     enable_enhanced_security_monitoring           = true
+    enable_security_analysis_tool                 = true
     serverless_private_endpoint_rules = [
       {
         endpoint_service = "com.amazonaws.vpce.us-west-2.vpce-svc-0123456789abcdef0"
@@ -130,5 +221,241 @@ run "plan_test_full_features" {
       },
     ]
   }
+}
+
+# Plans a custom network that brings its own VPC, subnets, security group, and AWS VPC endpoints.
+run "plan_test_custom_network" {
+  command = plan
+
+  variables {
+    custom_general_access_vpce_id = "vpce-0abcd1234efgh5678"
+    custom_private_subnet_ids     = ["subnet-0abcd1234efgh5678", "subnet-1abcd1234efgh5678"]
+    custom_scc_relay_vpce_id      = "vpce-1abcd1234efgh5678"
+    custom_sg_id                  = "sg-0abcd1234efgh5678"
+    custom_vpc_id                 = "vpc-0abcd1234efgh5678"
+    network_configuration         = "custom"
+  }
+}
+
+# Plans a custom network whose endpoints are already registered with Databricks, so the Databricks-side
+# VPC endpoint IDs are supplied in place of the AWS VPC endpoint IDs.
+run "plan_test_custom_network_registered_endpoints" {
+  command = plan
+
+  variables {
+    custom_general_access_mws_vpce_id = "11111111-2222-3333-4444-555555555555"
+    custom_private_subnet_ids         = ["subnet-0abcd1234efgh5678", "subnet-1abcd1234efgh5678"]
+    custom_scc_relay_mws_vpce_id      = "66666666-7777-8888-9999-000000000000"
+    custom_sg_id                      = "sg-0abcd1234efgh5678"
+    custom_vpc_id                     = "vpc-0abcd1234efgh5678"
+    network_configuration             = "custom"
+  }
+}
+
+# Plans a Service Direct endpoint in us-west-2, where Service Direct supports only some AZs, so the intra subnets
+# are looked up to filter by AZ. The filtered subnet IDs are only known at apply, since the subnets are created in
+# the same plan.
+run "plan_test_service_direct_limited_az_region" {
+  command = plan
+
+  variables {
+    create_service_direct_vpce = true
+  }
+
+  assert {
+    condition     = length(aws_vpc_endpoint.service_direct) == 1 && length(data.aws_subnet.intra) == 2
+    error_message = "The Service Direct endpoint must be created and the intra subnets looked up in a limited-AZ region."
+  }
+}
+
+# Plans a Service Direct endpoint in us-east-2, which supports every AZ, so no subnet lookup is needed.
+run "plan_test_service_direct_all_az_region" {
+  command = plan
+
+  variables {
+    create_service_direct_vpce = true
+    region                     = "us-east-2"
+  }
+
+  assert {
+    condition     = length(aws_vpc_endpoint.service_direct) == 1 && length(data.aws_subnet.intra) == 0
+    error_message = "The Service Direct endpoint must be created without looking up subnet AZs in an all-AZ region."
+  }
+}
+
+# The default plan leaves Service Direct off, so the subnet AZ lookup must not run.
+run "plan_test_service_direct_off_skips_subnet_lookup" {
+  command = plan
+
+  assert {
+    condition     = length(aws_vpc_endpoint.service_direct) == 0 && length(data.aws_subnet.intra) == 0
+    error_message = "The intra subnet AZ lookup must be skipped when Service Direct is off."
+  }
+}
+
+# The default plan logs S3 data events for the workspace root bucket only.
+run "cloudtrail_default_root_bucket_only" {
+  command = plan
+
+  assert {
+    condition     = length(aws_cloudtrail.s3_data_events) == 1 && length(aws_s3_bucket.cloudtrail) == 1
+    error_message = "The CloudTrail trail and log bucket must be created by default."
+  }
+
+  assert {
+    condition     = local.cloudtrail_logged_bucket_names == tolist(["my-databricks-dev-workspace-root-storage"])
+    error_message = "Only the workspace root bucket must be logged by default."
+  }
+
+  assert {
+    condition     = length(aws_kms_key.cloudtrail) == 1 && anytrue([for rule in aws_s3_bucket_server_side_encryption_configuration.cloudtrail[0].rule : rule.apply_server_side_encryption_by_default[0].sse_algorithm == "aws:kms"])
+    error_message = "The CloudTrail log bucket must be encrypted with a dedicated CMK."
+  }
+}
+
+# Opting in to every bucket logs all three when this deployment creates the audit log delivery bucket.
+run "cloudtrail_all_buckets" {
+  command = plan
+
+  variables {
+    cloudtrail_s3_data_events = {
+      audit_log_delivery_bucket = true
+      catalog_bucket            = true
+    }
+  }
+
+  assert {
+    condition     = length(aws_cloudtrail.s3_data_events) == 1 && local.cloudtrail_audit_log_delivery_bucket
+    error_message = "The audit log delivery bucket must be logged when this deployment creates it."
+  }
+}
+
+# The audit log delivery bucket is not created when audit log delivery already exists, so it cannot be logged.
+run "cloudtrail_audit_log_delivery_exists" {
+  command = plan
+
+  variables {
+    audit_log_delivery_exists = true
+    cloudtrail_s3_data_events = {
+      audit_log_delivery_bucket = true
+      workspace_root_bucket     = false
+    }
+  }
+
+  assert {
+    condition     = length(aws_cloudtrail.s3_data_events) == 0 && length(aws_s3_bucket.cloudtrail) == 0
+    error_message = "The CloudTrail trail must be skipped when the only selected bucket is not created."
+  }
+
+  expect_failures = [
+    check.cloudtrail_audit_log_delivery_bucket,
+  ]
+}
+
+# A customer-managed log bucket replaces the created log bucket and CMK.
+run "cloudtrail_existing_log_bucket" {
+  command = plan
+
+  variables {
+    cloudtrail_s3_data_events = {
+      existing_kms_key_arn     = "arn:aws:kms:us-west-2:123456789012:key/11111111-2222-3333-4444-555555555555"
+      existing_log_bucket_name = "central-cloudtrail-logs"
+    }
+  }
+
+  assert {
+    condition     = length(aws_s3_bucket.cloudtrail) == 0 && length(aws_kms_key.cloudtrail) == 0
+    error_message = "The CloudTrail log bucket and CMK must be skipped when an existing log bucket is provided."
+  }
+
+  assert {
+    condition     = aws_cloudtrail.s3_data_events[0].s3_bucket_name == "central-cloudtrail-logs" && aws_cloudtrail.s3_data_events[0].kms_key_id == "arn:aws:kms:us-west-2:123456789012:key/11111111-2222-3333-4444-555555555555"
+    error_message = "The trail must deliver to the existing log bucket with the existing KMS key."
+  }
+}
+
+# An existing KMS key without an existing log bucket must be rejected, since the created log bucket uses its own CMK.
+run "cloudtrail_existing_kms_key_without_bucket_rejected" {
+  command = plan
+
+  variables {
+    cloudtrail_s3_data_events = {
+      existing_kms_key_arn = "arn:aws:kms:us-west-2:123456789012:key/11111111-2222-3333-4444-555555555555"
+    }
+  }
+
+  expect_failures = [
+    var.cloudtrail_s3_data_events,
+  ]
+}
+
+# Turning off every bucket skips the trail and its log bucket.
+run "cloudtrail_disabled" {
+  command = plan
+
+  variables {
+    cloudtrail_s3_data_events = {
+      workspace_root_bucket = false
+    }
+  }
+
+  assert {
+    condition     = length(aws_cloudtrail.s3_data_events) == 0 && length(aws_s3_bucket.cloudtrail) == 0
+    error_message = "The CloudTrail trail and log bucket must be skipped when no bucket is selected."
+  }
+}
+
+# A custom network with none of its required inputs must be rejected by the network_configuration validations
+# rather than failing later on missing VPC, security group, or endpoint resources.
+run "custom_network_missing_inputs_rejected" {
+  command = plan
+
+  variables {
+    network_configuration = "custom"
+  }
+
+  expect_failures = [
+    var.network_configuration,
+  ]
+}
+
+# HYBRID mode creates AWS resources whose ARNs embed the account ID, so a missing aws_account_id must be
+# rejected by its validation rather than failing later on null values in IAM policy templates.
+run "hybrid_missing_aws_account_id_rejected" {
+  command = plan
+
+  variables {
+    aws_account_id = null
+  }
+
+  expect_failures = [
+    var.aws_account_id,
+  ]
+}
+
+# An empty aws_account_id (as left in template.tfvars.example) counts as missing in HYBRID mode.
+run "hybrid_empty_aws_account_id_rejected" {
+  command = plan
+
+  variables {
+    aws_account_id = ""
+  }
+
+  expect_failures = [
+    var.aws_account_id,
+  ]
+}
+
+# An aws_account_id that is not a 12-digit ID (here, a pasted ARN) must be rejected before it reaches IAM ARNs.
+run "malformed_aws_account_id_rejected" {
+  command = plan
+
+  variables {
+    aws_account_id = "arn:aws:iam::123456789012:root"
+  }
+
+  expect_failures = [
+    var.aws_account_id,
+  ]
 }
 # ---------------

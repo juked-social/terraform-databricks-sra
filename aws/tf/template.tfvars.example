@@ -88,6 +88,21 @@ create_service_direct_vpce = false
 # Does not work on aws-govcloud.
 audit_log_delivery_exists = true
 
+# Log S3 object-level (data) events for the Databricks buckets to a dedicated CloudTrail trail and log bucket.
+# The workspace root bucket is logged by default. The audit log delivery bucket can only be logged when this
+# deployment creates it (audit_log_delivery_exists = false). Set every flag to false to skip the trail entirely.
+# By default a log bucket encrypted with a dedicated CMK is created. To deliver to a bucket you already manage (e.g. a
+# central log archive bucket), set existing_log_bucket_name and, if the logs should be KMS-encrypted, existing_kms_key_arn.
+# Its bucket and key policies must allow the trail arn:<partition>:cloudtrail:<region>:<aws_account_id>:trail/<resource_prefix>-s3-data-events.
+# NOTE: CloudTrail data events are billed per event. Ignored when compute_mode = "SERVERLESS".
+cloudtrail_s3_data_events = {
+  audit_log_delivery_bucket = false
+  catalog_bucket            = false
+  workspace_root_bucket     = true
+  # existing_kms_key_arn      = ""
+  # existing_log_bucket_name  = ""
+}
+
 # Disable legacy features (e.g. Hive Metastore, DBFS, no-isolation shared clusters) for newly created workspaces at the account level.
 # NOTE: This affects ALL new workspaces created in the Databricks account, not just this deployment.
 # Legacy settings on this deployment's workspace are always disabled, regardless of this flag.
@@ -113,8 +128,11 @@ compliance_standards = ["STANDARD_A", "STANDARD_B"]
 # NOTE: Enhanced security monitoring is automatically enabled when the compliance security profile is enabled.
 enable_enhanced_security_monitoring = false
 
-# Enable the security analysis tool (review configurations + credentials in main.tf and the official SAT documentation prior to enabling)
+# Enable the security analysis tool (review the configuration in main.tf and the official SAT documentation prior to enabling)
 # SAT documentation can be found here: https://databricks-industry-solutions.github.io/security-analysis-tool/
+# The SAT service principal credentials are not managed by Terraform. After the first apply, add them to the SAT secret scope:
+#   databricks secrets put-secret sat_scope client-id
+#   databricks secrets put-secret sat_scope client-secret
 # Enabling this will add pypi.org and files.pythonhosted.org to the network policy egress allow list so SAT can install its dependencies.
 enable_security_analysis_tool = false
 
