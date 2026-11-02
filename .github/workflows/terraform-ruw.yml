@@ -41,6 +41,11 @@ on:
         description: Additional arguments to pass to the tflint command e.g. "-var 'foo=bar'"
         required: false
         default: null
+      tflint_config:
+        type: string
+        description: TFLint config file, relative to the repository root (e.g. "aws/tf/.tflint.hcl"). Passed as an absolute --config so every directory linted by --recursive uses the same file
+        required: false
+        default: ""
       tflint_env:
         type: string
         description: Space-separated environment variable assignments prefixed to the tflint command e.g. "TF_VAR_foo=bar". Unlike --var, TF_VAR_ values are ignored by modules that do not declare the variable, so they are safe with --recursive
@@ -112,11 +117,18 @@ jobs:
           parsed="$(printf '%s' "$TFLINT_ARGS" | xargs -r printf '%s\n')"
           extra_args=()
           if [ -n "$parsed" ]; then mapfile -t extra_args <<< "$parsed"; fi
+          if [ -n "$TFLINT_CONFIG" ]; then
+            if [[ "$TFLINT_CONFIG" == /* || "/$TFLINT_CONFIG/" == */../* ]]; then
+              echo "::error::tflint_config must be a path relative to the repository root, without '..'"; exit 1
+            fi
+            extra_args+=("--config=$GITHUB_WORKSPACE/$TFLINT_CONFIG")
+          fi
           tflint --init "${extra_args[@]}"
         env:
           # https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/plugins.md#avoiding-rate-limiting
           GITHUB_TOKEN: ${{ github.token }}
           TFLINT_ARGS: ${{ inputs.tflint_args }}
+          TFLINT_CONFIG: ${{ inputs.tflint_config }}
         working-directory: ${{ inputs.working_directory }}
       - name: Run TFLint
         # See "Init TFLint" for why inputs are passed through env. Beyond that:
@@ -135,6 +147,12 @@ jobs:
           parsed="$(printf '%s' "$TFLINT_ARGS" | xargs -r printf '%s\n')"
           extra_args=()
           if [ -n "$parsed" ]; then mapfile -t extra_args <<< "$parsed"; fi
+          if [ -n "$TFLINT_CONFIG" ]; then
+            if [[ "$TFLINT_CONFIG" == /* || "/$TFLINT_CONFIG/" == */../* ]]; then
+              echo "::error::tflint_config must be a path relative to the repository root, without '..'"; exit 1
+            fi
+            extra_args+=("--config=$GITHUB_WORKSPACE/$TFLINT_CONFIG")
+          fi
 
           parsed_env="$(printf '%s' "$TFLINT_ENV" | xargs -r printf '%s\n')"
           env_assignments=()
@@ -155,6 +173,7 @@ jobs:
         env:
           TFLINT_ARGS: ${{ inputs.tflint_args }}
           TFLINT_ENV: ${{ inputs.tflint_env }}
+          TFLINT_CONFIG: ${{ inputs.tflint_config }}
           TFLINT_MIN_SEVERITY: ${{ inputs.tflint_minimum_failure_severity }}
         working-directory: ${{ inputs.working_directory }}
 
