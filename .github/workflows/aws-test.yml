@@ -17,7 +17,7 @@ jobs:
       terraform_fmt_check: true
       terraform_test_args: "-filter=tests/mock_plan.tftest.hcl -filter=tests/mock_plan_gov.tftest.hcl -filter=tests/mock_plan_serverless.tftest.hcl"
       terraform_validate_enabled: true
-      tflint_args: "--config=${{ github.workspace }}/aws/tf/.tflint.hcl"
+      tflint_config: aws/tf/.tflint.hcl
       # aws_account_id defaults to null for SERVERLESS mode, and TFLint's AWS IAM/KMS policy rules fail to evaluate
       # "${var.aws_account_id}" templates when it is null. A placeholder account ID keeps those rules running. It is
       # passed as TF_VAR_ rather than --var because --recursive also lints modules that do not declare the variable.

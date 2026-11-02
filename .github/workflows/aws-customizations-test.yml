@@ -35,5 +35,5 @@ jobs:
     with:
       terraform_fmt_check: true
       terraform_validate_enabled: true
-      tflint_args: "--config=${{ github.workspace }}/aws/tf/.tflint.hcl"
+      tflint_config: aws/tf/.tflint.hcl
       working_directory: aws/customizations/${{ matrix.customization }}
