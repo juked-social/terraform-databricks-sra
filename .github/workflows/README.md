@@ -67,9 +67,11 @@ see [here](https://github.com/terraform-linters/tflint/blob/master/docs/user-gui
 > Note that this file only applies to the terraform code that is colocated in the directory the file is in. TFLint is
 > configured to use the `--recursive` option by default, so this means that only the root configuration of a module will
 > use this configuration file by default. To avoid creating multiple .tflint.hcl files throughout a nested module
-> configuration, it is recommended to use the `tflint_args` input of the reusable workflow to add the
-`--config=$(pwd)/.tflint.hcl` argument. This will cause tflint to use the same configuration file as it recurses the
-> working directory tree. See azure-test.yml for an example.
+> configuration, it is recommended to set the `tflint_config` input of the reusable workflow to the file's path relative
+> to the repository root (e.g. `aws/tf/.tflint.hcl`). The workflow passes it to tflint as an absolute `--config`, so
+> tflint uses the same configuration file as it recurses the working directory tree. Inputs are not run through the
+> shell, so shell syntax such as `$(pwd)` or `$GITHUB_WORKSPACE` in `tflint_args` reaches tflint as literal text, and
+> `${{ github.workspace }}` is empty in a caller's `with:`. See aws-test.yml for an example.
 
 ### Terraform Fmt
 
@@ -124,6 +126,7 @@ on a terraform plan if the provider were authenticated.
 | `tflint_version`                  | string  | No       | `v0.52.0` | The version of TFLint to install.                                                 |
 | `tflint_minimum_failure_severity` | string  | No       | `error`   | The minimum severity required before TFLint considers a rule violation a failure. |
 | `tflint_args`                     | string  | No       | `null`    | Additional arguments to pass to the TFLint command. Example: `"-var 'foo=bar'"`.  |
+| `tflint_config`                   | string  | No       | `""`      | TFLint config file relative to the repository root. Example: `aws/tf/.tflint.hcl`. |
 
 ### 3. **Terraform Settings**
 
@@ -163,5 +166,5 @@ jobs:
     uses: ./.github/workflows/terraform-ruw.yml
     with:
       working_directory: azure/tf
-      tflint_args: "--config=$(pwd)/.tflint.hcl" #This causes TFLint to reuse the same .tflint.hcl file for every subdirectory
+      tflint_config: azure/tf/.tflint.hcl #This causes TFLint to reuse the same .tflint.hcl file for every subdirectory
 ```
