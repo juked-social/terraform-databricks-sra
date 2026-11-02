@@ -95,7 +95,9 @@ module "databricks_mws_workspace" {
   network_connectivity_configuration_id = module.network_connectivity_configuration.ncc_id
   network_policy_id                     = module.network_policy.network_policy_id
 
-  depends_on = [module.unity_catalog_metastore_creation, module.network_connectivity_configuration, module.network_policy, module.disable_legacy_features]
+  # aws_iam_role_policy.cross_account makes the module's credential wait start only after the cross-account role and
+  # its policy exist.
+  depends_on = [aws_iam_role_policy.cross_account, module.disable_legacy_features, module.network_connectivity_configuration, module.network_policy, module.unity_catalog_metastore_creation]
 }
 
 # Wait for the newly created workspace to become fully available. Workspace-level settings applied
@@ -172,7 +174,7 @@ module "unity_catalog_catalog_creation" {
   depends_on = [module.unity_catalog_metastore_assignment]
 }
 
-# Restrictive Root Buckt Policy
+# Restrictive Root Bucket Policy
 module "restrictive_root_bucket" {
   count  = local.is_serverless ? 0 : 1
   source = "./modules/databricks_workspace/restrictive_root_bucket"
@@ -185,11 +187,30 @@ module "restrictive_root_bucket" {
   aws_partition             = local.computed_aws_partition
   workspace_id              = module.databricks_mws_workspace.workspace_id
   region_name               = var.databricks_gov_shard == "dod" ? var.region_name_config[var.region].secondary_name : var.region_name_config[var.region].primary_name
-  root_s3_bucket            = "${var.resource_prefix}-workspace-root-storage"
+  root_s3_bucket            = aws_s3_bucket.root_storage_bucket[0].id
+}
+
+# Decide once, when the workspace is created, whether the workspace-level legacy settings below are managed.
+# A workspace created while disable_legacy_features is enabled at the account level (already enabled, or enabled by
+# this deployment) has those settings enforced and locked; managing them makes terraform destroy fail with "This
+# setting cannot be modified or deleted for this workspace." ignore_changes keeps the decision fixed afterwards, so
+# later changes to the account setting never remove settings from an existing workspace. Existing workspaces are
+# always managed: removing the settings from a workspace that is not locked would re-enable legacy access.
+resource "terraform_data" "disable_legacy_settings_decision" {
+  input = {
+    skip_workspace_settings = !contains(keys(coalesce(data.databricks_mws_workspaces.all.ids, {})), coalesce(var.workspace_display_name, var.resource_prefix)) && (
+      var.disable_legacy_features_at_account_level || coalesce(try(data.databricks_account_setting_v2.disable_legacy_features.effective_boolean_val.value, null), false)
+    )
+  }
+
+  lifecycle {
+    ignore_changes = [input]
+  }
 }
 
 # Disable legacy settings like Hive Metastore, Disables Databricks Runtime prior to 13.3 LTS, DBFS, DBFS Mounts,etc.
 module "disable_legacy_settings" {
+  count  = terraform_data.disable_legacy_settings_decision.input.skip_workspace_settings ? 0 : 1
   source = "./modules/databricks_workspace/disable_legacy_settings"
   providers = {
     databricks = databricks.created_workspace
@@ -268,8 +289,6 @@ module "security_analysis_tool" {
 
   # Authentication Variables
   databricks_account_id = var.databricks_account_id
-  client_id             = null # Provide Workspace Admin ID
-  client_secret         = null # Provide Workspace Admin Secret
 
   use_sp_auth = true
 
@@ -290,15 +309,20 @@ module "security_analysis_tool" {
 # State Moves
 # =============================================================================
 
-# Preserve state across count addition for the serverless workspace variant
-moved {
-  from = module.restrictive_root_bucket
-  to   = module.restrictive_root_bucket[0]
-}
-
+# Preserve state across count additions.
 moved {
   from = module.cluster_configuration
   to   = module.cluster_configuration[0]
+}
+
+moved {
+  from = module.disable_legacy_settings
+  to   = module.disable_legacy_settings[0]
+}
+
+moved {
+  from = module.restrictive_root_bucket
+  to   = module.restrictive_root_bucket[0]
 }
 
 # The catalog module now always runs (AWS storage is gated inside it via is_serverless), so its
