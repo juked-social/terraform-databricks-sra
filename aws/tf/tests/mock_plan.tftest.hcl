@@ -196,6 +196,21 @@ run "legacy_settings_existing_workspace_account_on" {
   }
 }
 
+# Plans with the workspace settings managed: notebook results in the customer account, tokens off.
+run "plan_test_workspace_conf" {
+  command = plan
+
+  variables {
+    enable_workspace_conf   = true
+    max_token_lifetime_days = 90
+  }
+
+  assert {
+    condition     = length(module.workspace_conf) == 1
+    error_message = "The workspace_conf module must be created when enable_workspace_conf is true."
+  }
+}
+
 # Plans with the optional security features enabled, since the default run leaves them all off:
 # automatic cluster update, compliance security profile, enhanced security monitoring, account-level
 # disable of legacy features, IP-based ingress restriction, the security analysis tool, and serverless private
