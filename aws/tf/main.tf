@@ -259,6 +259,22 @@ module "compliance_security_profile" {
   depends_on = [time_sleep.wait_for_workspace]
 }
 
+# Manage workspace settings: notebook results location and personal access tokens.
+module "workspace_conf" {
+  count  = var.enable_workspace_conf ? 1 : 0
+  source = "./modules/databricks_workspace/workspace_conf"
+
+  providers = {
+    databricks = databricks.created_workspace
+  }
+
+  store_notebook_results_in_customer_account = var.store_notebook_results_in_customer_account
+  enable_tokens                              = var.enable_tokens
+  max_token_lifetime_days                    = var.max_token_lifetime_days
+
+  depends_on = [time_sleep.wait_for_workspace]
+}
+
 # Create Cluster (skipped for serverless-only workspaces)
 module "cluster_configuration" {
   count  = local.is_serverless ? 0 : 1

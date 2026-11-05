@@ -283,6 +283,31 @@ variable "enable_enhanced_security_monitoring" {
   default     = false
 }
 
+variable "enable_workspace_conf" {
+  description = "Flag to manage workspace settings (notebook results location and personal access tokens) with Terraform."
+  type        = bool
+  default     = false
+}
+
+variable "store_notebook_results_in_customer_account" {
+  description = "Store interactive notebook results in the customer account. Only applies when enable_workspace_conf is true."
+  type        = bool
+  default     = true
+}
+
+variable "enable_tokens" {
+  description = "Allow users to create personal access tokens. Only applies when enable_workspace_conf is true."
+  type        = bool
+  default     = false
+}
+
+variable "max_token_lifetime_days" {
+  description = "Maximum lifetime in days for new personal access tokens. Null leaves the workspace default. Only applies when enable_workspace_conf is true."
+  type        = number
+  default     = null
+  nullable    = true
+}
+
 variable "enable_security_analysis_tool" {
   description = "Flag to enable the security analysis tool."
   type        = bool
